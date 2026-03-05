@@ -1,0 +1,34 @@
+{
+  "name": "jiraboard",
+  "version": "1.0.0",
+  "description": "Task Management Service Backend with Node.js, Express, and MySQL",
+  "main": "index.js",
+  "scripts": {
+    "start": "node index.js",
+    "dev": "nodemon index.js"
+  },
+  "dependencies": {
+    "cors": "^2.8.5",
+    "dotenv": "^16.3.1",
+    "express": "^4.18.2",
+    "fs": "^0.0.1-security",
+    "google-auth-library": "^9.4.1",
+    "jsonwebtoken": "^9.0.2",
+    "multer": "^2.1.0",
+    "mysql": "^2.18.1",
+    "mysql2": "^3.6.5",
+    "path": "^0.12.7",
+    "serve-index": "^1.9.2"
+  },
+  "devDependencies": {
+    "nodemon": "^3.0.2"
+  },
+  "keywords": [
+    "task-management",
+    "nodejs",
+    "express",
+    "mysql",
+    "google-auth"
+  ],
+  "author": "Ojas Joshi"
+}

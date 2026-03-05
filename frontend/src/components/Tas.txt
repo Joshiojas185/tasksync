@@ -1,0 +1,335 @@
+import { useState, useEffect } from 'react';
+import { 
+  X, MessageSquare, Clock, CheckCircle2, Circle, 
+  AlertCircle, Plus, Paperclip, Send, Loader2, Edit2, Save, User as UserIcon, Calendar, History
+} from 'lucide-react';
+import { cn } from '@/lib/utils';
+import type { Task, Subtask, Comment, User, SubtaskWorkLog } from '@/types';
+import { AvatarInitials, StatusDot } from '@/components/TaskBadges';
+import api from '@/lib/api'; 
+import { Button } from '@/components/ui/button';
+import { Input } from '@/components/ui/input';
+import { Textarea } from '@/components/ui/textarea';
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
+import { Label } from '@/components/ui/label';
+
+interface TaskDrawerProps {
+  task: Task | null;
+  availableStatus: string[];
+  boardMembers: User[];
+  onClose: () => void;
+  onTaskUpdate: (updatedTask: Task) => void;
+}
+
+export function TaskDrawer({ task, availableStatus, boardMembers, onClose, onTaskUpdate }: TaskDrawerProps) {
+  const [activeTab, setActiveTab] = useState<'details' | 'subtasks' | 'comments'>('details');
+  const [isEditingTask, setIsEditingTask] = useState(false);
+  const [editedTask, setEditedTask] = useState<Partial<Task>>({});
+  
+  // Subtask & Worklog States
+  const [subtasks, setSubtasks] = useState<Subtask[]>([]);
+  const [workLogs, setWorkLogs] = useState<Record<number, SubtaskWorkLog[]>>({});
+  const [editingSubtaskId, setEditingSubtaskId] = useState<number | null>(null);
+  const [loggingHoursFor, setLoggingHoursFor] = useState<number | null>(null);
+  
+  // Form States
+  const [subtaskForm, setSubtaskForm] = useState<Partial<Subtask>>({});
+  const [logForm, setLogForm] = useState({ hoursWorked: 0, workDate: new Date().toISOString().split('T') });
+  const [comments, setComments] = useState<Comment[]>([]);
+  const [newComment, setNewComment] = useState("");
+  const [isUploading, setIsUploading] = useState(false);
+
+  useEffect(() => {
+    if (task) {
+      setEditedTask(task);
+      setIsEditingTask(false);
+      fetchSubtasks();
+      fetchComments();
+    }
+  }, [task]);
+
+  const fetchSubtasks = async () => {
+    if (!task) return;
+    try {
+      const res = await api.get(`/api/tasks/${task.id}/subtasks`);
+      if (res.data.success) {
+        setSubtasks(res.data.subtasks);
+        res.data.subtasks.forEach((s: Subtask) => fetchWorkLogs(s.id));
+      }
+    } catch (err) { console.error(err); }
+  };
+
+    const toggleSubtaskStatus = async (sub: Subtask) => {
+    const newStatus = sub.status === 'Done' ? 'Active' : 'Done';
+    try {
+      const res = await api.put(`/api/subtasks/${sub.id}`, { status: newStatus });
+      if (res.data.success) {
+        setSubtasks(prev => prev.map(s => s.id === sub.id ? { ...s, status: newStatus } : s));
+      }
+    } catch (err) { console.error(err); }
+  };
+
+  const fetchWorkLogs = async (subtaskId: number) => {
+    try {
+      const res = await api.get(`/api/subtasks/${subtaskId}/worklogs`);
+      if (res.data.success) setWorkLogs(prev => ({ ...prev, [subtaskId]: res.data.workLogs }));
+    } catch (err) { console.error(err); }
+  };
+
+  const fetchComments = async () => {
+    if (!task) return;
+    try {
+      const res = await api.get(`/api/tasks/${task.id}/comments`);
+      if (res.data.success) setComments(res.data.comments);
+    } catch (err) { console.error(err); }
+  };
+
+  const handleUpdateTask = async () => {
+    if (!task) return;
+    try {
+      const res = await api.put(`/api/tasks/${task.id}`, editedTask);
+      if (res.data.success) {
+        onTaskUpdate(res.data.task);
+        setIsEditingTask(false);
+      }
+    } catch (err) { console.error(err); }
+  };
+
+  const handleUpdateSubtask = async (subId: number) => {
+    try {
+      const res = await api.put(`/api/subtasks/${subId}`, subtaskForm);
+      if (res.data.success) {
+        setSubtasks(prev => prev.map(s => s.id === subId ? { ...s, ...subtaskForm } : s));
+        setEditingSubtaskId(null);
+      }
+    } catch (err) { console.error(err); }
+  };
+
+  const handleAddWorkLog = async (subtaskId: number) => {
+    try {
+      const res = await api.post(`/api/subtasks/${subtaskId}/worklogs`, logForm);
+      if (res.data.success) {
+        setLoggingHoursFor(null);
+        fetchWorkLogs(subtaskId);
+      }
+    } catch (err) { console.error(err); }
+  };
+
+  const handleFileUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    const formData = new FormData();
+    formData.append('file', file);
+    setIsUploading(true);
+    try {
+      const res = await api.post('/dev/uploadData', formData, {
+        headers: { 'Content-Type': 'multipart/form-data' }
+      });
+      if (res.data.success) {
+        await handleAddComment(`Attached file: ${file.name}`, res.data.filePath, file.name);
+      }
+    } catch (err) { console.error(err); } finally { setIsUploading(false); }
+  };
+
+  const handleAddComment = async (content: string, filePath?: string, fileName?: string) => {
+    if (!task || (!content.trim() && !filePath)) return;
+    try {
+      const res = await api.post(`/api/tasks/${task.id}/comments`, { 
+        content, 
+        filePath: filePath || null, 
+        fileName: fileName || null 
+      });
+      if (res.data.success) {
+        setComments(prev => [...prev, res.data.comment]);
+        setNewComment("");
+      }
+    } catch (err) { console.error(err); }
+  };
+
+  if (!task) return null;
+
+  return (
+    <>
+      <div className="fixed inset-0 bg-background/60 backdrop-blur-sm z-40" onClick={onClose} />
+      <div className="fixed right-0 top-0 h-full w-full md:w-1/2 bg-slate-950 border-l border-slate-800 z-50 flex flex-col shadow-2xl animate-in slide-in-from-right duration-300">
+        
+        {/* Header */}
+        <div className="flex items-center justify-between px-6 py-4 border-b border-slate-800 bg-slate-900/20">
+          <div className="flex items-center gap-3">
+            <StatusDot status={editedTask.status || task.status} />
+            <span className="text-xs font-mono text-slate-500 uppercase tracking-widest">TASK-{task.id}</span>
+          </div>
+          <div className="flex items-center gap-2">
+            {isEditingTask ? (
+              <Button size="sm" onClick={handleUpdateTask} className="bg-blue-600 hover:bg-blue-700 text-white"><Save className="w-4 h-4 mr-2" /> Save</Button>
+            ) : (
+              <button onClick={() => setIsEditingTask(true)} className="p-2 rounded-md hover:bg-slate-900 text-slate-400"><Edit2 className="w-4 h-4" /></button>
+            )}
+            <button onClick={onClose} className="p-2 rounded-md hover:bg-slate-900 text-slate-400"><X className="w-5 h-5" /></button>
+          </div>
+        </div>
+
+        <div className="flex-1 overflow-y-auto scrollbar-none p-8">
+          {/* Main Info */}
+          <div className="mb-10">
+            <div className="flex items-center gap-4 mb-4">
+              {isEditingTask ? (
+                <Input value={editedTask.title} onChange={e => setEditedTask({...editedTask, title: e.target.value})} className="text-2xl font-bold bg-slate-900 border-slate-800" />
+              ) : (
+                <h2 className="text-3xl font-bold text-slate-100">{task.title}</h2>
+              )}
+              {!isEditingTask && (
+                <span className={cn(
+                  "px-3 py-1 rounded-full text-[10px] font-bold uppercase tracking-widest border",
+                  task.priority === 'High' ? "text-red-500 border-red-500/30" : "text-green-500 border-green-500/30"
+                )}>{task.priority}</span>
+              )}
+            </div>
+            {isEditingTask ? (
+              <Textarea value={editedTask.description || ''} onChange={e => setEditedTask({...editedTask, description: e.target.value})} className="bg-slate-900 border-slate-800" />
+            ) : (
+              <p className="text-slate-400 leading-relaxed">{task.description || 'No description provided.'}</p>
+            )}
+          </div>
+
+          <div className="grid grid-cols-4 gap-4 mb-10 bg-slate-900/40 p-6 rounded-2xl border border-slate-800/50">
+             <InfoBlock label="Status" value={task.status} />
+             <InfoBlock label="Assignee" value={task.assigneeName || 'Unassigned'} />
+             <InfoBlock label="Story Points" value={`${task.storyPoints} SP`} />
+             <InfoBlock label="Estimate" value={`${task.hours}h`} />
+          </div>
+
+          {/* Tabs */}
+          <div className="flex gap-8 border-b border-slate-800 mb-6">
+            {['details', 'subtasks', 'comments'].map((tab) => (
+              <button key={tab} onClick={() => setActiveTab(tab as any)} className={cn('text-sm py-4 border-b-2 transition-all capitalize font-bold', activeTab === tab ? 'border-blue-500 text-slate-100' : 'border-transparent text-slate-500')}>{tab}</button>
+            ))}
+          </div>
+
+          <div className="pb-20">
+            {activeTab === 'subtasks' && (
+              <div className="space-y-6">
+                {subtasks.map((sub) => {
+                  const logged = workLogs[sub.id]?.reduce((acc, curr) => acc + Number(curr.hoursWorked), 0) || 0;
+                  const isEditingSub = editingSubtaskId === sub.id;
+
+                  return (
+                    <div key={sub.id} className="p-6 rounded-2xl bg-slate-900/50 border border-slate-800 group">
+                      {isEditingSub ? (
+                        <div className="space-y-4">
+                          <Input value={subtaskForm.title} onChange={e => setSubtaskForm({...subtaskForm, title: e.target.value})} className="bg-slate-950 border-slate-800" />
+                          <Textarea value={subtaskForm.description} onChange={e => setSubtaskForm({...subtaskForm, description: e.target.value})} className="bg-slate-950 border-slate-800" />
+                          <div className="flex gap-2">
+                             <Button size="sm" onClick={() => handleUpdateSubtask(sub.id)} className="bg-blue-600">Save</Button>
+                             <Button size="sm" variant="ghost" onClick={() => setEditingSubtaskId(null)}>Cancel</Button>
+                          </div>
+                        </div>
+                      ) : (
+                        <div className="space-y-4">
+                          <div className="flex items-start justify-between">
+                            <div className="flex items-start gap-4">
+                              <button onClick={() => toggleSubtaskStatus(sub)}>{sub.status === 'Done' ? <CheckCircle2 className="text-green-500" /> : <Circle className="text-slate-600" />}</button>
+                              <div>
+                                <p className={cn("text-lg font-bold text-slate-100", sub.status === 'Done' && "line-through text-slate-600")}>{sub.title}</p>
+                                <p className="text-sm text-slate-500">{sub.description}</p>
+                              </div>
+                            </div>
+                            <div className="flex gap-2">
+                               <button onClick={() => { setEditingSubtaskId(sub.id); setSubtaskForm(sub); }} className="p-2 hover:bg-slate-800 rounded-md text-slate-500"><Edit2 className="w-4 h-4" /></button>
+                            </div>
+                          </div>
+                          
+                          <div className="flex items-center justify-between pt-4 border-t border-slate-800/50">
+                            <div className="flex gap-6">
+                              <ProgressStat label="Estimated" value={`${sub.hours}h`} />
+                              <ProgressStat label="Logged" value={`${logged}h`} color={logged > sub.hours ? "text-red-400" : "text-green-400"} />
+                              <ProgressStat label="Remaining" value={`${Math.max(0, sub.hours - logged)}h`} />
+                            </div>
+                            <Button size="sm" variant="outline" onClick={() => setLoggingHoursFor(sub.id)} className="border-slate-700 h-8 text-xs"><Clock className="w-3 h-3 mr-2"/> Log Hours</Button>
+                          </div>
+
+                          {loggingHoursFor === sub.id && (
+                            <div className="flex gap-2 pt-4 animate-in slide-in-from-top-2">
+                              <Input type="number" placeholder="Hours" onChange={e => setLogForm({...logForm, hoursWorked: parseFloat(e.target.value)})} className="bg-slate-950 border-slate-800 w-24 h-9" />
+                              <Input type="date" value={logForm.workDate} onChange={e => setLogForm({...logForm, workDate: e.target.value})} className="bg-slate-950 border-slate-800 w-40 h-9" />
+                              <Button onClick={() => handleAddWorkLog(sub.id)} className="bg-green-600 h-9">Log</Button>
+                            </div>
+                          )}
+
+                          {workLogs[sub.id]?.length > 0 && (
+                            <div className="mt-4 p-4 bg-slate-950/50 rounded-xl space-y-2">
+                               <p className="text-[10px] uppercase text-slate-600 font-bold tracking-widest flex items-center gap-2"><History className="w-3 h-3"/> Work Log History</p>
+                               {workLogs[sub.id].map(log => (
+                                 <div key={log.id} className="text-xs text-slate-400 flex justify-between py-1 border-b border-slate-800 last:border-0">
+                                   <span>{new Date(log.workDate).toLocaleDateString()}</span>
+                                   <span className="font-bold text-slate-200">{log.hoursWorked}h</span>
+                                 </div>
+                               ))}
+                            </div>
+                          )}
+                        </div>
+                      )}
+                    </div>
+                  );
+                })}
+              </div>
+            )}
+
+            {activeTab === 'comments' && (
+              <div className="space-y-6">
+                <div className="space-y-6 max-h-[500px] overflow-y-auto pr-2 scrollbar-none">
+                  {comments.map(c => (
+                    <div key={c.id} className="flex gap-4">
+                      <AvatarInitials name={c.userName} />
+                      <div className="flex-1 bg-slate-900 p-5 rounded-2xl rounded-tl-none border border-slate-800">
+                        <div className="flex justify-between items-center mb-2">
+                          <span className="font-bold text-xs text-blue-400 uppercase">{c.userName}</span>
+                          <span className="text-[10px] text-slate-500">{new Date(c.createdAt).toLocaleString()}</span>
+                        </div>
+                        <p className="text-slate-200 text-sm">{c.content}</p>
+                        {c.filePath && (
+                          <a href={`http://localhost:4000${c.filePath}`} target="_blank" className="flex items-center gap-3 mt-4 p-3 bg-slate-950 rounded-xl border border-slate-800 hover:border-blue-500/50 transition-all">
+                            <Paperclip className="w-4 h-4 text-slate-500" />
+                            <span className="text-xs text-slate-300 truncate">{c.fileName || 'Download Attachment'}</span>
+                          </a>
+                        )}
+                      </div>
+                    </div>
+                  ))}
+                </div>
+                <div className="relative pt-4">
+                  <Textarea placeholder="Add a comment..." value={newComment} onChange={e => setNewComment(e.target.value)} className="pr-24 min-h-[100px] bg-slate-900 border-slate-800 rounded-2xl" />
+                  <div className="absolute right-3 bottom-3 flex gap-2">
+                    <label className="cursor-pointer p-2 hover:bg-slate-800 rounded-md text-slate-500 transition-colors">
+                      <input type="file" className="hidden" onChange={handleFileUpload} disabled={isUploading} />
+                      {isUploading ? <Loader2 className="w-4 h-4 animate-spin" /> : <Paperclip className="w-4 h-4" />}
+                    </label>
+                    <Button onClick={() => handleAddComment(newComment)} disabled={!newComment.trim()} className="bg-blue-600"><Send className="w-4 h-4" /></Button>
+                  </div>
+                </div>
+              </div>
+            )}
+          </div>
+        </div>
+      </div>
+    </>
+  );
+}
+
+function InfoBlock({ label, value }: { label: string; value: string }) {
+  return (
+    <div className="space-y-1">
+      <p className="text-[10px] uppercase text-slate-500 font-bold tracking-widest">{label}</p>
+      <p className="text-slate-200 font-medium truncate">{value}</p>
+    </div>
+  );
+}
+
+function ProgressStat({ label, value, color }: { label: string; value: string; color?: string }) {
+  return (
+    <div>
+      <p className="text-[9px] uppercase text-slate-600 font-bold tracking-tighter">{label}</p>
+      <p className={cn("text-xs font-mono font-bold", color || "text-slate-300")}>{value}</p>
+    </div>
+  );
+}

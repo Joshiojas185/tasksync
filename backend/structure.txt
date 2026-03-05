@@ -1,0 +1,182 @@
+-- =========================
+-- USERS TABLE
+-- =========================
+CREATE TABLE IF NOT EXISTS User (
+    id INT PRIMARY KEY AUTO_INCREMENT,
+    googleId VARCHAR(255) UNIQUE,
+    name VARCHAR(255) NOT NULL,
+    email VARCHAR(255) UNIQUE NOT NULL,
+    picture TEXT,
+    role ENUM('user', 'admin') DEFAULT 'user',
+    createdAt TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    updatedAt TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
+);
+
+CREATE INDEX idx_user_email ON User(email);
+
+-- =========================
+-- BOARDS TABLE
+-- One board -> many epics
+-- =========================
+CREATE TABLE IF NOT EXISTS Board (
+    id INT PRIMARY KEY AUTO_INCREMENT,
+    title VARCHAR(255) NOT NULL,
+    description TEXT,
+    createdBy INT NOT NULL,
+    createdAt TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    updatedAt TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+    FOREIGN KEY (createdBy) REFERENCES User(id) ON DELETE CASCADE
+);
+
+-- =========================
+-- BOARD ACCESS (Many-to-Many)
+-- =========================
+CREATE TABLE IF NOT EXISTS allowed_users (
+    id INT PRIMARY KEY AUTO_INCREMENT,
+    boardId INT NOT NULL,
+    userId INT NOT NULL,
+    createdAt TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    FOREIGN KEY (boardId) REFERENCES Board(id) ON DELETE CASCADE,
+    FOREIGN KEY (userId) REFERENCES User(id) ON DELETE CASCADE,
+    UNIQUE KEY unique_board_user (boardId, userId)
+);
+
+-- =========================
+-- EPICS TABLE
+-- One board -> many epics
+-- =========================
+CREATE TABLE IF NOT EXISTS Epics (
+    id INT PRIMARY KEY AUTO_INCREMENT,
+    title VARCHAR(255) NOT NULL,
+    description TEXT,
+    boardId INT NOT NULL,
+    createdBy INT,
+    createdAt TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    updatedAt TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+    FOREIGN KEY (boardId) REFERENCES Board(id) ON DELETE CASCADE,
+    FOREIGN KEY (createdBy) REFERENCES User(id) ON DELETE SET NULL,
+    INDEX idx_epic_board (boardId)
+);
+
+-- =========================
+-- SPRINTS TABLE
+-- One epic -> many sprints
+-- (Usually 14 days duration)
+-- =========================
+CREATE TABLE IF NOT EXISTS Sprints (
+    id INT PRIMARY KEY AUTO_INCREMENT,
+    title VARCHAR(255) NOT NULL,
+    description TEXT,
+    startTime DATETIME NOT NULL,
+    expiry DATETIME NOT NULL,
+    status JSON,
+    epicId INT NOT NULL,
+    createdBy INT,
+    createdAt TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    updatedAt TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+    FOREIGN KEY (epicId) REFERENCES Epics(id) ON DELETE CASCADE,
+    FOREIGN KEY (createdBy) REFERENCES User(id) ON DELETE SET NULL,
+    INDEX idx_sprint_epic (epicId),
+    INDEX idx_sprint_dates (startTime, expiry)
+);
+
+-- =========================
+-- TASKS TABLE
+-- Now belongs to a Sprint
+-- =========================
+CREATE TABLE IF NOT EXISTS Tasks (
+    id INT PRIMARY KEY AUTO_INCREMENT,
+    sprintId INT NOT NULL,
+    title VARCHAR(255) NOT NULL,
+    description TEXT,
+    assigneeId INT,
+    storyPoints INT DEFAULT 0,
+    hours DECIMAL(5,2) DEFAULT 0,
+    status VARCHAR(30), -- Dynamic status (Kanban style)
+    priority ENUM('Low', 'Medium', 'High') DEFAULT 'Medium',
+    createdBy INT,
+    createdAt TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    updatedAt TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+
+    FOREIGN KEY (sprintId) REFERENCES Sprints(id) ON DELETE CASCADE,
+    FOREIGN KEY (assigneeId) REFERENCES User(id) ON DELETE SET NULL,
+    FOREIGN KEY (createdBy) REFERENCES User(id) ON DELETE SET NULL,
+
+    INDEX idx_task_sprint (sprintId),
+    INDEX idx_task_assignee (assigneeId)
+);
+
+-- =========================
+-- SUBTASKS TABLE
+-- One Task -> Many Subtasks
+-- Auto assigned + trackable work
+-- =========================
+CREATE TABLE IF NOT EXISTS Subtasks (
+    id INT PRIMARY KEY AUTO_INCREMENT,
+    taskId INT NOT NULL,
+    title VARCHAR(255) NOT NULL,
+    description TEXT,
+    assigneeId INT NOT NULL,
+    hours INT DEFAULT 0,
+    status ENUM('Active', 'Done') DEFAULT 'Active',
+    completedAt DATETIME NULL, -- stores when marked Done
+    createdBy INT,
+    createdAt TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    updatedAt TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+
+    FOREIGN KEY (taskId) REFERENCES Tasks(id) ON DELETE CASCADE,
+    FOREIGN KEY (assigneeId) REFERENCES User(id) ON DELETE CASCADE,
+    FOREIGN KEY (createdBy) REFERENCES User(id) ON DELETE SET NULL,
+
+    INDEX idx_subtask_task (taskId),
+    INDEX idx_subtask_assignee (assigneeId),
+    INDEX idx_subtask_status (status),
+    INDEX idx_subtask_completed (completedAt)
+);
+
+-- =========================
+-- COMMENTS TABLE
+-- Comments on Tasks (and optional attachments)
+-- =========================
+CREATE TABLE IF NOT EXISTS Comments (
+    id INT AUTO_INCREMENT PRIMARY KEY,
+    taskId INT NULL,
+    subtaskId INT NULL,
+    userId INT NOT NULL,
+    content TEXT NOT NULL,
+    fileName VARCHAR(255),
+    filePath VARCHAR(255),
+    createdAt TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+
+    FOREIGN KEY (taskId) REFERENCES Tasks(id) ON DELETE CASCADE,
+    FOREIGN KEY (subtaskId) REFERENCES Subtasks(id) ON DELETE CASCADE,
+    FOREIGN KEY (userId) REFERENCES User(id) ON DELETE CASCADE,
+
+    INDEX idx_comment_task (taskId),
+    INDEX idx_comment_subtask (subtaskId),
+    INDEX idx_comment_user (userId),
+
+    -- Ensures a comment belongs to either a task OR a subtask (not both NULL)
+    CHECK (
+        (taskId IS NOT NULL AND subtaskId IS NULL) OR
+        (taskId IS NULL AND subtaskId IS NOT NULL)
+    )
+);
+
+
+
+CREATE TABLE SubtaskWorkLogs (
+    id INT PRIMARY KEY AUTO_INCREMENT,
+    subtaskId INT NOT NULL,
+    userId INT NOT NULL,
+    workDate DATE NOT NULL,
+    hoursWorked DECIMAL(5,2) NOT NULL,
+    createdAt TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+
+    FOREIGN KEY (subtaskId) REFERENCES Subtasks(id) ON DELETE CASCADE,
+    FOREIGN KEY (userId) REFERENCES User(id) ON DELETE CASCADE,
+
+    INDEX idx_worklog_subtask (subtaskId),
+    INDEX idx_worklog_user (userId),
+    INDEX idx_worklog_date (workDate)
+);
