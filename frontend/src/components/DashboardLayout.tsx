@@ -1,31 +1,3 @@
-// import { AppSidebar } from '@/components/AppSidebar';
-
-// interface DashboardLayoutProps {
-//   children: React.ReactNode;
-// }
-
-// export function DashboardLayout({ children }: DashboardLayoutProps) {
-//   return (
-//     <div className="flex min-h-screen w-full bg-background">
-//       <AppSidebar />
-//       <main className="flex-1 flex flex-col overflow-hidden">
-//         {children}
-//       </main>
-//     </div>
-//   );
-// }
-// Working very well
-
-
-
-
-
-
-
-
-
-
-
 import { useState } from 'react';
 import { AppSidebar } from './AppSidebar';
 
